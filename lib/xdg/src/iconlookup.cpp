@@ -67,7 +67,7 @@ XDG::IconLookup *XDG::IconLookup::instance()
     static IconLookup *instance_ = nullptr;
     if (!instance_){
         if(QIcon::themeName() == "") {
-            QIcon::setThemeName("Paper");
+            QIcon::setThemeName("Papirus-Dark");
         }
         qInfo() << "Systems icon theme is:" << QIcon::themeName();
         instance_ = new IconLookup();
