@@ -66,13 +66,18 @@ Core::SettingsWidget::SettingsWidget(ExtensionManager *extensionManager,
      */
 
     // HOTKEY
-    QSet<int> hks = hotkeyManager->hotkeys();
-    if (hks.size() < 1)
-        ui.grabKeyButton_hotkey->setText("Press to set hotkey");
-    else
-        ui.grabKeyButton_hotkey->setText(QKeySequence(*hks.begin()).toString()); // OMG
-    connect(ui.grabKeyButton_hotkey, &GrabKeyButton::keyCombinationPressed,
-            this, &SettingsWidget::changeHotkey);
+    if (hotkeyManager) {
+        QSet<int> hks = hotkeyManager->hotkeys();
+        if (hks.size() < 1)
+            ui.grabKeyButton_hotkey->setText("Press to set hotkey");
+        else
+            ui.grabKeyButton_hotkey->setText(QKeySequence(*hks.begin()).toString()); // OMG
+        connect(ui.grabKeyButton_hotkey, &GrabKeyButton::keyCombinationPressed,
+                this, &SettingsWidget::changeHotkey);
+    } else {
+        ui.grabKeyButton_hotkey->setVisible(false);
+        ui.label_hotkey->setVisible(false);
+    }
 
     // TRAY
     ui.checkBox_showTray->setChecked(trayIcon_->isVisible());
@@ -89,7 +94,7 @@ Core::SettingsWidget::SettingsWidget(ExtensionManager *extensionManager,
     connect(ui.checkBox_telemetry, &QCheckBox::toggled, this, [this](bool checked){ telemetry_->enable(checked); });
 
     // AUTOSTART
-#ifdef Q_OS_LINUX
+#if defined(Q_OS_LINUX) || defined(Q_OS_FREEBSD)
     QString desktopfile_path = QStandardPaths::locate(QStandardPaths::ApplicationsLocation,
                                                       "albert.desktop",
                                                       QStandardPaths::LocateFile);
@@ -151,13 +156,14 @@ Core::SettingsWidget::SettingsWidget(ExtensionManager *extensionManager,
 
 
     // TERM CMD (TOOOOOOOOOOODOOOOOOOOOO CENTRALIZE THIS)
-    // Define the (global extern) terminal command
-    terminalCommand = QSettings(qApp->applicationName()).value(CFG_TERM, QString()).toString();
+
+    Q_ASSERT(terminalCommand.isEmpty());
 
     // Available terms
     std::vector<std::pair<QString, QString>> terms {
         // Distro terms
         {"Deepin Terminal", "deepin-terminal -x"},
+        {"Elementary Terminal", "io.elementary.terminal -x"},
         {"Gnome Terminal", "gnome-terminal --"},
         {"Konsole", "konsole -e"},
         {"LXTerminal", "lxterminal -e"},
@@ -165,12 +171,14 @@ Core::SettingsWidget::SettingsWidget(ExtensionManager *extensionManager,
         {"XFCE-Terminal", "xfce4-terminal -x"},
         // Standalone terms
         {"Cool Retro Term", "cool-retro-term -e"},
+        {"QTerminal", "qterminal -e"},
         {"RoxTerm", "roxterm -x"},
         {"Terminator", "terminator -x"},
         {"Termite", "termite -e"},
+        {"Tilix", "tilix -e"},
         {"UXTerm", "uxterm -e"},
-        {"XTerm", "xterm -e"},
-        {"urxvt", "urxvt -e"}
+        {"Urxvt", "urxvt -e"},
+        {"XTerm", "xterm -e"}
     };
 
     // Filter available terms by availability
@@ -180,9 +188,20 @@ Core::SettingsWidget::SettingsWidget(ExtensionManager *extensionManager,
         else
             ++it;
 
-    // if terminalCommand is not set, use the first found
-    if (terminalCommand.isNull())
-        terminalCommand = terms[0].second;
+    if (terms.empty())
+        qWarning() << "No terminals found.";
+
+    // Set the terminal command
+    terminalCommand = QSettings(qApp->applicationName()).value(CFG_TERM, QString()).toString();
+    if (terminalCommand.isNull()){
+        if (terms.empty()){
+            qCritical() << "No terminal command set. Terminal actions wont work as expected!";
+            terminalCommand = "";
+        } else {
+            terminalCommand = terms[0].second;
+            qWarning() << "No terminal command set. Using" << terminalCommand;
+        }
+    }
 
     // Fill checkbox
     for (const auto & t : terms)
@@ -307,6 +326,7 @@ void SettingsWidget::updatePluginInformations(const QModelIndex & current) {
 
 /** ***************************************************************************/
 void SettingsWidget::changeHotkey(int newhk) {
+    Q_ASSERT(hotkeyManager_);
     int oldhk = *hotkeyManager_->hotkeys().begin(); //TODO Make cool sharesdpointer design
 
     // Try to set the hotkey
@@ -348,7 +368,7 @@ void SettingsWidget::keyPressEvent(QKeyEvent *event) {
 
 /** ***************************************************************************/
 void SettingsWidget::closeEvent(QCloseEvent *event) {
-    if (hotkeyManager_->hotkeys().empty()) {
+    if (hotkeyManager_ && hotkeyManager_->hotkeys().empty()) {
         QMessageBox msgBox(QMessageBox::Warning, "Hotkey Missing",
                            "Hotkey is invalid, please set it. Press OK to go "\
                            "back to the settings.",

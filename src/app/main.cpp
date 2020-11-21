@@ -19,6 +19,9 @@
 #include <QUrl>
 #include <QtNetwork/QLocalServer>
 #include <QtNetwork/QLocalSocket>
+#if defined __linux__ || defined __freebsd__
+#include <QX11Info>
+#endif
 #include <csignal>
 #include <functional>
 #include "globalshortcut/hotkeymanager.h"
@@ -68,6 +71,9 @@ int main(int argc, char **argv) {
      *  For performance purposes this has been optimized by using a QCoreApp
      */
     QString socketPath = QStandardPaths::writableLocation(QStandardPaths::CacheLocation)+"/socket";
+#if X_PROTOCOL
+    socketPath.append(QString::number(QX11Info::appScreen()));
+#endif
     {
         QCoreApplication *capp = new QCoreApplication(argc, argv);
         capp->setApplicationName("albert");
@@ -276,7 +282,7 @@ int main(int argc, char **argv) {
                     "); "))
             qFatal("Unable to create table 'activation': %s", q.lastError().text().toUtf8().constData());
 
-        if (!q.exec("DELETE FROM query WHERE julianday('now')-julianday(timestamp)>30; "))
+        if (!q.exec("DELETE FROM query WHERE julianday('now')-julianday(timestamp, 'unixepoch')>30; "))
             qWarning("Unable to cleanup 'query' table.");
 
         if (!q.exec("CREATE TABLE IF NOT EXISTS conf(key TEXT UNIQUE, value TEXT); "))
@@ -296,7 +302,7 @@ int main(int argc, char **argv) {
         if ( parser.isSet("plugin-dirs") )
             pluginDirs = parser.value("plugin-dirs").split(',');
         else {
-#if defined __linux__
+#if defined __linux__ || defined __FreeBSD__
             QStringList dirs = {
 #if defined MULTIARCH_TUPLE
                 QFileInfo("/usr/lib/" MULTIARCH_TUPLE).canonicalFilePath(),
@@ -326,15 +332,20 @@ int main(int argc, char **argv) {
         frontendManager = new FrontendManager(pluginDirs);
         extensionManager = new ExtensionManager(pluginDirs);
         extensionManager->reloadExtensions();
-        hotkeyManager = new HotkeyManager;
-        if ( parser.isSet("hotkey") ) {
-            QString hotkey = parser.value("hotkey");
-            if ( !hotkeyManager->registerHotkey(hotkey) )
-                qFatal("Failed to set hotkey to %s.", hotkey.toLocal8Bit().constData());
-        } else if ( settings.contains("hotkey") ) {
-            QString hotkey = settings.value("hotkey").toString();
-            if ( !hotkeyManager->registerHotkey(hotkey) )
-                qFatal("Failed to set hotkey to %s.", hotkey.toLocal8Bit().constData());
+
+        if ( !QGuiApplication::platformName().contains("wayland") )
+            hotkeyManager = new HotkeyManager;
+
+        if ( hotkeyManager ) {
+            if ( parser.isSet("hotkey") ) {
+                QString hotkey = parser.value("hotkey");
+                if ( !hotkeyManager->registerHotkey(hotkey) )
+                    qFatal("Failed to set hotkey to %s.", hotkey.toLocal8Bit().constData());
+            } else if ( settings.contains("hotkey") ) {
+                QString hotkey = settings.value("hotkey").toString();
+                if ( !hotkeyManager->registerHotkey(hotkey) )
+                    qFatal("Failed to set hotkey to %s.", hotkey.toLocal8Bit().constData());
+            }
         }
         queryManager = new QueryManager(extensionManager);
         telemetry  = new Telemetry;
@@ -363,7 +374,7 @@ int main(int argc, char **argv) {
         docsAction->setIcon(app->style()->standardIcon(QStyle::SP_DialogHelpButton));
         trayIconMenu->addAction(docsAction);
         QObject::connect(docsAction, &QAction::triggered, [](){
-            QDesktopServices::openUrl(QUrl("https://albertlauncher.github.io/docs/"));
+            QDesktopServices::openUrl(QUrl("https://albertlauncher.github.io/"));
         });
 
         trayIconMenu->addSeparator();
